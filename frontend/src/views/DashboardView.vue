@@ -46,6 +46,10 @@ onMounted(async () => {
         <div class="label">今日排程轮灌</div>
         <div class="value">{{ stats.irrigationScheduledToday }}</div>
       </div>
+      <div class="stat">
+        <div class="label">今日轮灌升数（东八区）</div>
+        <div class="value">{{ stats.irrigationTodayLiters }} L</div>
+      </div>
     </div>
 
     <div class="panel" style="margin-top: 18px">

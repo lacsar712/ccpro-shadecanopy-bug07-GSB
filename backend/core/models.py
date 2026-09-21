@@ -82,6 +82,12 @@ class IrrigationCycle(models.Model):
         (STATUS_DONE, "已完成"),
         (STATUS_SKIPPED, "已跳过"),
     ]
+    VALID_STATUSES = {
+        STATUS_SCHEDULED,
+        STATUS_RUNNING,
+        STATUS_DONE,
+        STATUS_SKIPPED,
+    }
 
     zone = models.ForeignKey(
         Zone, on_delete=models.CASCADE, related_name="irrigation_cycles"
@@ -100,3 +106,19 @@ class IrrigationCycle(models.Model):
 
     def __str__(self):
         return f"Irrig@{self.zone_id} {self.start_at} ({self.status})"
+
+    @classmethod
+    def normalize_status(cls, value):
+        """把外部传入的状态归一到四态之一：去空白、转小写。
+
+        非法值回退为默认的「已排程」，保证状态读写只落在
+        scheduled/running/done/skipped。
+        """
+        if not isinstance(value, str):
+            return cls.STATUS_SCHEDULED
+        value = value.strip().lower()
+        return value if value in cls.VALID_STATUSES else cls.STATUS_SCHEDULED
+
+    def save(self, *args, **kwargs):
+        self.status = self.normalize_status(self.status)
+        super().save(*args, **kwargs)

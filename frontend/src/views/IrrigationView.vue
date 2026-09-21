@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 
 const list = ref([])
@@ -7,6 +7,17 @@ const zones = ref([])
 const error = ref('')
 const editingId = ref(null)
 const filterStatus = ref('')
+// 列表默认只看「今日」，与看板共用东八区归日口径
+const onlyToday = ref(true)
+
+// 两侧数据：今日列表加总 vs 看板今日升数 —— 每次都实时重取，禁止本地缓存
+const listTodayLiters = ref(0)
+const dashboardTodayLiters = ref(null)
+const aligned = computed(
+  () =>
+    dashboardTodayLiters.value !== null &&
+    Number(listTodayLiters.value) === Number(dashboardTodayLiters.value)
+)
 
 function localInputValue(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0')
@@ -43,13 +54,47 @@ async function loadZones() {
   if (!form.zoneId && zones.value.length) form.zoneId = zones.value[0].id
 }
 
+async function loadTodayList() {
+  // 今日轮灌：后端按东八区归日且不分页，不过滤状态，加总即看板今日升数
+  const { data } = await api.get('/irrigation-cycles/', {
+    params: { today: 1 },
+  })
+  const rows = data.results || data
+  listTodayLiters.value = rows.reduce(
+    (sum, r) => sum + Number(r.waterLiters || 0),
+    0
+  )
+  return rows
+}
+
+async function loadDashboard() {
+  const { data } = await api.get('/dashboard/')
+  dashboardTodayLiters.value = Number(data.irrigationTodayLiters || 0)
+  return data
+}
+
+async function refreshBoth() {
+  // 改完水量后两侧并行实时重取，不使用任何缓存数字
+  const [todayRows] = await Promise.all([loadTodayList(), loadDashboard()])
+  return todayRows
+}
+
 async function load() {
   error.value = ''
   try {
-    const params = {}
-    if (filterStatus.value) params.status = filterStatus.value
-    const { data } = await api.get('/irrigation-cycles/', { params })
-    list.value = data.results || data
+    // 每次加载都实时重取两侧（保存/改水量/删除后同样走这里），不用缓存
+    const todayRows = await refreshBoth()
+    if (onlyToday.value) {
+      // 今日行已取到；状态筛选在今日集合内做本地过滤，加总始终用全量今日行
+      list.value = filterStatus.value
+        ? todayRows.filter((r) => r.status === filterStatus.value)
+        : todayRows
+    } else {
+      const params = {}
+      if (filterStatus.value) params.status = filterStatus.value
+      const { data } = await api.get('/irrigation-cycles/', { params })
+      list.value = data.results || data
+    }
   } catch {
     error.value = '加载轮灌计划失败'
   }
@@ -103,9 +148,12 @@ onMounted(async () => {
     <div class="page-head">
       <div>
         <h1>轮灌计划</h1>
-        <p>按分区安排起灌时间、时长与水量</p>
+        <p>按分区安排起灌时间、时长与水量（今日按东八区归日）</p>
       </div>
       <div class="actions">
+        <label style="display:flex;align-items:center;gap:6px">
+          <input v-model="onlyToday" type="checkbox" @change="load" /> 仅今日
+        </label>
         <select v-model="filterStatus" @change="load">
           <option value="">全部状态</option>
           <option value="scheduled">已排程</option>
@@ -113,6 +161,25 @@ onMounted(async () => {
           <option value="done">已完成</option>
           <option value="skipped">已跳过</option>
         </select>
+      </div>
+    </div>
+
+    <div class="panel" v-if="onlyToday">
+      <div class="stats" style="margin:0">
+        <div class="stat">
+          <div class="label">今日列表水量加总</div>
+          <div class="value">{{ listTodayLiters }} L</div>
+        </div>
+        <div class="stat">
+          <div class="label">看板今日升数</div>
+          <div class="value">{{ dashboardTodayLiters ?? '—' }} L</div>
+        </div>
+        <div class="stat">
+          <div class="label">口径校验</div>
+          <div class="value" :style="{ color: aligned ? 'var(--ok, #2e7d32)' : '#c62828' }">
+            {{ aligned ? '一致 ✓' : '不一致 ✗' }}
+          </div>
+        </div>
       </div>
     </div>
 

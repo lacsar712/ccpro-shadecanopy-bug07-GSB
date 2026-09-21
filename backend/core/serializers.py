@@ -116,6 +116,9 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
     waterLiters = serializers.DecimalField(
         source="water_liters", max_digits=10, decimal_places=2
     )
+    # 覆盖 ModelSerializer 依据 choices 生成的 ChoiceField：
+    # 允许「 running 」这类带空白/大小写的写入，再统一归一化。
+    status = serializers.CharField(required=False, allow_blank=True)
     zoneCode = serializers.CharField(source="zone.zone_code", read_only=True)
     greenhouseName = serializers.CharField(
         source="zone.greenhouse.name", read_only=True
@@ -142,6 +145,9 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def validate_status(self, value):
+        return IrrigationCycle.normalize_status(value)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
