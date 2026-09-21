@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .status_utils import InvalidStatusError, normalize_status
 
 
 class GreenhouseSerializer(serializers.ModelSerializer):
@@ -120,6 +121,8 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
     greenhouseName = serializers.CharField(
         source="zone.greenhouse.name", read_only=True
     )
+    # allow_blank：空白状态在 validate_status 中归一为 scheduled，而非拒绝
+    status = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = IrrigationCycle
@@ -143,8 +146,9 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if isinstance(data.get("status"), str):
-            data["status"] = data["status"].strip()
-        return data
+    def validate_status(self, value):
+        # 读/写同一归一口径：空白→scheduled，大小写/别名归一，非法值报错
+        try:
+            return normalize_status(value)
+        except InvalidStatusError as exc:
+            raise serializers.ValidationError(str(exc))
